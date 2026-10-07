@@ -9,6 +9,10 @@ RUN python3 -m venv /opt/venv && pip install --upgrade pip setuptools wheel
 RUN git clone --depth 1 --branch 3.9.1 https://github.com/facefusion/facefusion.git /opt/facefusion
 WORKDIR /opt/facefusion
 RUN python3 install.py cuda@12 --skip-conda && pip install runpod requests
+# 07.10.: Auf RunPod-MIG-Scheiben meldet nvidia-smi den Speicher als "Insufficient Permissions" -> FaceFusion stuerzte beim int() ab.
+RUN grep -q "'value': int(value)," facefusion/execution.py \
+ && sed -i "s/'value': int(value),/'value': int(value) if value.isdigit() else 0,/" facefusion/execution.py \
+ && grep -q "value.isdigit()" facefusion/execution.py
 # Probelauf auf CPU: laedt genau die Modelle, die der Handler nutzt (schlaegt der Befehl fehl, scheitert der Build sichtbar)
 RUN mkdir -p /tmp/ex && curl -sL -o /tmp/ex/source.jpg https://github.com/facefusion/facefusion-assets/releases/download/examples-3.0.0/source.jpg \
  && curl -sL -o /tmp/ex/target.mp4 https://github.com/facefusion/facefusion-assets/releases/download/examples-3.0.0/target-240p.mp4 \
