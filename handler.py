@@ -47,7 +47,8 @@ def handler(event):
     inp = event.get("input", {}) or {}; t0 = time.time(); jid = event.get("id", "?")
     try:
         faces = [u for u in (inp.get("face_urls") or []) if u][:8]
-        if not inp.get("video_url") or not faces: return {"error": "video_url und face_urls nötig"}
+        enhance_only = inp.get("mode") == "enhance"          # 08.10.: nur Nachschaerfen (kein Tausch, keine Gesichtsfotos noetig)
+        if not inp.get("video_url") or (not faces and not enhance_only): return {"error": "video_url und face_urls nötig"}
         model = pick(inp.get("swapper_model"), SWAPPERS, "hyperswap_1c_256")
         boost = str(inp.get("pixel_boost") or 512)
         boost = boost if boost in ("256", "512", "768", "1024") else "512"
@@ -62,17 +63,17 @@ def handler(event):
         expression = max(0, min(100, int(inp.get("expression", 0) or 0)))
         selector = "many" if inp.get("selector") == "many" else "one"
         video = dl(inp["video_url"], "mp4")
-        srcs = [dl(u, "jpg") for u in faces]
+        srcs = [dl(u, "jpg") for u in faces] if not enhance_only else []
         out = f"{CACHE}/out_{uuid.uuid4().hex[:8]}.mp4"
-        procs = ["face_swapper"]
-        if expression > 0: procs.append("expression_restorer")
-        if blend > 0: procs.append("face_enhancer")
-        cmd = ["python3", "facefusion.py", "headless-run", "-s", *srcs, "-t", video, "-o", out,
-               "--processors", *procs, "--face-swapper-model", model, "--face-swapper-pixel-boost", f"{boost}x{boost}",
+        procs = [] if enhance_only else ["face_swapper"]
+        if expression > 0 and not enhance_only: procs.append("expression_restorer")
+        if blend > 0 or enhance_only: procs.append("face_enhancer"); blend = blend or 50
+        cmd = ["python3", "facefusion.py", "headless-run", *(["-s", *srcs] if srcs else []), "-t", video, "-o", out,
+               "--processors", *procs, *([] if enhance_only else ["--face-swapper-model", model, "--face-swapper-pixel-boost", f"{boost}x{boost}"]),
                "--face-selector-mode", selector, "--face-selector-order", "large-small",
                "--face-mask-types", *mtypes, "--face-mask-blur", f"{mblur:.2f}", "--face-mask-padding", *mpad,
                "--execution-providers", "cuda", "--execution-thread-count", "16", "--video-memory-strategy", "tolerant",
-               "--output-video-encoder", "libx264", "--output-video-quality", "92", "--output-video-preset", "medium", "--log-level", "info"]
+               "--output-video-encoder", "libx264", "--output-video-quality", str(max(60, min(100, int(inp.get("quality", 92))))), "--output-video-preset", "medium", "--log-level", "info"]
         if "region" in mtypes and mregions: cmd += ["--face-mask-regions", *mregions]
         if blend > 0:
             cmd += ["--face-enhancer-model", enhancer, "--face-enhancer-blend", str(blend)]
